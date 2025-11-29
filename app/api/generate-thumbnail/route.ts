@@ -25,13 +25,23 @@ export async function POST(req: NextRequest) {
     
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: "Invalid request parameters", details: error.errors },
+        { error: "Invalid request parameters", details: error.issues },
         { status: 400 }
       );
     }
 
+    // Provide more detailed error message
+    const errorMessage = error instanceof Error 
+      ? error.message 
+      : "Failed to generate thumbnail";
+    
     return NextResponse.json(
-      { error: "Failed to generate thumbnail" },
+      { 
+        error: errorMessage,
+        ...(error instanceof Error && error.message.includes('text description') && {
+          suggestion: "The image generation API may not be returning an image URL. Please check the API response format or try a different model."
+        })
+      },
       { status: 500 }
     );
   }

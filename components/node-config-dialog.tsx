@@ -4,17 +4,17 @@ import { useState, useEffect } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
 import { NodeData } from '@/lib/nodes';
-import { useReactFlow } from '@xyflow/react';
+import { Node } from '@xyflow/react';
 
 interface NodeConfigDialogProps {
   open: boolean;
   onClose: () => void;
   nodeData: NodeData;
   nodeId: string;
+  onUpdateNode: (nodeId: string, config: Record<string, any>) => void;
 }
 
-export default function NodeConfigDialog({ open, onClose, nodeData, nodeId }: NodeConfigDialogProps) {
-  const { setNodes } = useReactFlow();
+export default function NodeConfigDialog({ open, onClose, nodeData, nodeId, onUpdateNode }: NodeConfigDialogProps) {
   const [config, setConfig] = useState(nodeData.config || {});
 
   useEffect(() => {
@@ -22,13 +22,7 @@ export default function NodeConfigDialog({ open, onClose, nodeData, nodeId }: No
   }, [nodeData.config]);
 
   const handleSave = () => {
-    setNodes((nodes) =>
-      nodes.map((node) =>
-        node.id === nodeId
-          ? { ...node, data: { ...node.data, config } }
-          : node
-      )
-    );
+    onUpdateNode(nodeId, config);
     onClose();
   };
 

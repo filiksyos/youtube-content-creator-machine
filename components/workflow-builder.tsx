@@ -24,7 +24,7 @@ const nodeTypes = {
   custom: WorkflowNode,
 };
 
-const initialNodes: Node<NodeData>[] = [];
+const initialNodes: Node[] = [];
 const initialEdges: Edge[] = [];
 
 export default function WorkflowBuilder() {
@@ -39,7 +39,7 @@ export default function WorkflowBuilder() {
   );
 
   const addNode = (type: 'script' | 'thumbnail') => {
-    const newNode: Node<NodeData> = {
+    const newNode: Node = {
       id: `${type}-${Date.now()}`,
       type: 'custom',
       position: { x: 250, y: nodes.length * 100 + 50 },
@@ -47,7 +47,7 @@ export default function WorkflowBuilder() {
         nodeType: type,
         label: type === 'script' ? 'Script Generator' : 'Thumbnail Generator',
         config: {},
-      },
+      } as NodeData,
     };
     setNodes((nds) => [...nds, newNode]);
   };
@@ -58,22 +58,34 @@ export default function WorkflowBuilder() {
 
     try {
       for (const node of nodes) {
-        if (node.data.nodeType === 'script') {
+        const nodeData = node.data as NodeData;
+        if (nodeData.nodeType === 'script') {
           const response = await fetch('/api/generate-script', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(node.data.config),
+            body: JSON.stringify(nodeData.config),
           });
           const data = await response.json();
           results[node.id] = { type: 'script', data: data.script };
-        } else if (node.data.nodeType === 'thumbnail') {
+        } else if (nodeData.nodeType === 'thumbnail') {
           const response = await fetch('/api/generate-thumbnail', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(node.data.config),
+            body: JSON.stringify(nodeData.config),
           });
           const data = await response.json();
-          results[node.id] = { type: 'thumbnail', data: data.imageUrl };
+          
+          if (!response.ok) {
+            // Handle API error
+            results[node.id] = { 
+              type: 'thumbnail', 
+              error: true,
+              data: data.error || 'Failed to generate thumbnail',
+              suggestion: data.suggestion
+            };
+          } else {
+            results[node.id] = { type: 'thumbnail', data: data.imageUrl };
+          }
         }
       }
       setExecutionResults(results);

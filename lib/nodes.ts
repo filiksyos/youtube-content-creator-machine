@@ -1,6 +1,6 @@
 export type NodeType = 'script' | 'thumbnail';
 
-export interface NodeData {
+export interface NodeData extends Record<string, unknown> {
   nodeType: NodeType;
   label: string;
   config: Record<string, any>;

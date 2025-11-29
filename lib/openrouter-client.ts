@@ -77,6 +77,7 @@ Include suggestions for visuals, on-screen text, and pacing notes where helpful.
 }
 
 // Generate YouTube thumbnail using google/gemini-2.5-flash-image (16:9 aspect ratio)
+// Based on working implementation from affirmation-screensaver
 export async function generateThumbnail(params: ThumbnailGenerationParams): Promise<string> {
   const { title, keyElements = '', style = 'bold and eye-catching' } = params;
 
@@ -95,17 +96,23 @@ Design Requirements:
 - Modern design aesthetic`;
 
   try {
+    // Use axios directly with image_config (as per working implementation)
+    const payload = {
+      model: 'google/gemini-2.5-flash-image',
+      messages: [
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+      image_config: {
+        aspect_ratio: '16:9', // 1344×768 resolution, perfect for YouTube thumbnails
+      },
+    };
+
     const response = await axios.post(
       `${OPENROUTER_API_URL}/chat/completions`,
-      {
-        model: 'google/gemini-2.5-flash-image',
-        messages: [
-          {
-            role: 'user',
-            content: prompt,
-          },
-        ],
-      },
+      payload,
       {
         headers: {
           'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
@@ -113,27 +120,111 @@ Design Requirements:
           'HTTP-Referer': 'https://github.com/filiksyos/youtube-content-creator-machine',
           'X-Title': 'YouTube Content Creator Machine',
         },
+        timeout: 60000, // 60 second timeout for image generation
       }
     );
 
-    // Extract image URL from response
-    // Note: The actual response format may vary depending on the model
-    // You may need to adjust this based on the actual API response structure
-    const content = response.data.choices[0].message.content;
-    
-    // If the response contains an image URL, extract it
-    // This is a placeholder - adjust based on actual API response
-    if (typeof content === 'string' && content.includes('http')) {
-      const urlMatch = content.match(/https?:\/\/[^\s]+/);
-      if (urlMatch) {
-        return urlMatch[0];
+    const result = response.data;
+    const message = result?.choices?.[0]?.message;
+
+    if (!message) {
+      console.error('API Response:', JSON.stringify(result, null, 2));
+      throw new Error('No message in API response');
+    }
+
+    let imageUrl: string | null = null;
+
+    // Check for images array (OpenRouter/Gemini image generation format)
+    if (message.images && Array.isArray(message.images) && message.images.length > 0) {
+      const imageData = message.images[0];
+
+      // Check if it's a URL string
+      if (typeof imageData === 'string') {
+        if (imageData.startsWith('http')) {
+          imageUrl = imageData;
+        } else if (imageData.startsWith('data:image')) {
+          // Data URL format - return as-is
+          imageUrl = imageData;
+        }
+      } else if (imageData && typeof imageData === 'object') {
+        // Object with image_url property (OpenRouter format)
+        if (imageData.image_url) {
+          imageUrl = typeof imageData.image_url === 'string'
+            ? imageData.image_url
+            : imageData.image_url.url;
+        } else if (imageData.url) {
+          // Fallback to url property
+          imageUrl = imageData.url;
+        } else if (imageData.base64 || imageData.data) {
+          // Base64 data directly - convert to data URL
+          const base64Data = imageData.base64 || imageData.data;
+          imageUrl = `data:image/png;base64,${base64Data}`;
+        } else if (imageData.inlineData?.data) {
+          // Gemini inlineData format
+          imageUrl = `data:image/png;base64,${imageData.inlineData.data}`;
+        }
       }
     }
 
-    // If the model returns base64 or other format, handle accordingly
-    return content;
+    // Check for content array (multimodal response - most common format)
+    if (!imageUrl && message.content && Array.isArray(message.content)) {
+      const imageContent = message.content.find(
+        (item: any) => item.type === 'image_url' || item.image_url
+      );
+      if (imageContent) {
+        imageUrl = imageContent.image_url?.url || imageContent.url || imageContent.image_url;
+      }
+    }
+
+    // Check for direct image_url in message
+    if (!imageUrl && message.image_url) {
+      imageUrl = message.image_url.url || message.image_url;
+    }
+
+    // Check for content as string (data URL or URL)
+    if (!imageUrl && message.content && typeof message.content === 'string') {
+      const content = message.content;
+      if (content.startsWith('data:image') || content.startsWith('http')) {
+        imageUrl = content;
+      }
+    }
+
+    // Check for parts array (Gemini-style response)
+    if (!imageUrl && message.parts && Array.isArray(message.parts)) {
+      const imagePart = message.parts.find(
+        (part: any) => part.inlineData || part.imageUrl
+      );
+      if (imagePart) {
+        if (imagePart.inlineData?.data) {
+          imageUrl = `data:image/png;base64,${imagePart.inlineData.data}`;
+        } else if (imagePart.imageUrl) {
+          imageUrl = imagePart.imageUrl.url || imagePart.imageUrl;
+        }
+      }
+    }
+
+    if (!imageUrl) {
+      console.error('Response structure:', JSON.stringify({
+        hasMessage: !!message,
+        messageKeys: message ? Object.keys(message) : [],
+        hasImages: !!message?.images,
+        imagesLength: message?.images?.length || 0,
+        imagesType: message?.images?.[0] ? typeof message?.images[0] : 'none',
+        contentType: message?.content ? typeof message.content : 'none',
+        contentIsArray: Array.isArray(message?.content),
+        hasImageUrl: !!message?.image_url,
+        hasParts: !!message?.parts,
+      }, null, 2));
+      throw new Error('No image data found in response. Check console for response structure details.');
+    }
+
+    return imageUrl;
   } catch (error) {
     console.error('Thumbnail generation error:', error);
+    if (error instanceof Error) {
+      throw error;
+    }
     throw new Error('Failed to generate thumbnail');
   }
 }
+
